@@ -1,6 +1,7 @@
 # 🔐 Face Recognition Door Unlocking System using ESP32-CAM
 
-This project implements a **smart door unlocking system using facial recognition**. It eliminates the need for traditional keys by using **face detection and recognition** to grant access. The system captures a live image, compares it with stored faces, and unlocks the door if a match is found.
+This project implements a **smart door unlocking system using facial recognition**. It eliminates the need for traditional keys by using **face detection and recognition** to grant access.
+The system captures a live image, compares it with stored faces, and unlocks the door if a match is found.
 
 ---
 
@@ -59,57 +60,87 @@ Face Capture → Image Processing → Face Matching → ESP32 Trigger → Relay 
 ```python
 import face_recognition
 import cv2
-import pickle
 import requests
 import time
 
-ESP32_IP = "http://192.168.1.5/unlock"  
+# Load the known image and extract face encoding
+known_image_path = r"C:\Users\Farhana\Desktop\Faces\priyansh.jfif"
+known_image = face_recognition.load_image_file(known_image_path)
+known_encodings = face_recognition.face_encodings(known_image)
 
-ENCODINGS_FILE = "encodings.pickle"
+if len(known_encodings) == 0:
+    print("❌ No faces found in the known image.")
+    exit()
 
-with open(ENCODINGS_FILE, "rb") as f:
-    data = pickle.load(f)
+known_encoding = known_encodings[0]
 
-video_capture = cv2.VideoCapture(0)
+# Webcam setup  u
+video = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+if not video.isOpened():
+    print("❌ Could not open webcam.")
+    exit()
 
-last_trigger_time = 0
-cooldown = 5   # seconds (prevents multiple unlocks)
+print("✅ Webcam started. Beginning face recognition...")
+
+last_unlock_time = 0
+UNLOCK_COOLDOWN = 5  # seconds
+TOLERANCE = 0.45     # Lower = stricter matching
 
 while True:
-    ret, frame = video_capture.read()
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    ret, frame = video.read()
+    if not ret:
+        print("❌ Failed to capture image.")
+        break
 
+    # Resize and convert to RGB
+    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+    rgb_frame = small_frame[:, :, ::-1]
+
+    # Detect faces
     face_locations = face_recognition.face_locations(rgb_frame)
     face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
-    for face_encoding in face_encodings:
-        matches = face_recognition.compare_faces(data["encodings"], face_encoding)
-        name = "Unknown"
+    for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+        # Compare face with known face
+        matches = face_recognition.compare_faces([known_encoding], face_encoding, tolerance=TOLERANCE)
+        face_distance = face_recognition.face_distance([known_encoding], face_encoding)[0]
 
-        if True in matches:
-            matchedIdx = matches.index(True)
-            name = data["names"][matchedIdx]
+        if matches[0]:
+            label = "Authorized"
+            print(f"✅ Face recognized (distance: {face_distance:.2f}).")
 
-        print("Detected:", name)
+            # Cooldown logic
+            current_time = time.time()
+            if current_time - last_unlock_time > UNLOCK_COOLDOWN:
+                try:
+                    response = requests.get("http://192.168.74.79/unlock")
+                    print("🔓 Door Unlocked:", response.text)
+                    last_unlock_time = current_time
+                except Exception as e:
+                    print(f"❌ Error: Could not connect to ESP32. {e}")
+        else:
+            label = "Unknown"
+            print(f"❌ Unauthorized face detected (distance: {face_distance:.2f}).")
 
-        # 🔓 Unlock logic
-        current_time = time.time()
+        # Scale back up face box since the frame was scaled down
+        top *= 4
+        right *= 4
+        bottom *= 4
+        left *= 4
 
-        if name != "Unknown" and (current_time - last_trigger_time > cooldown):
-            try:
-                response = requests.get(ESP32_IP)
-                print("Door Unlock Triggered!")
-                print("ESP32 Response:", response.text)
-                last_trigger_time = current_time
-            except Exception as e:
-                print("Error:", e)
+        # Draw box and label
+        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0) if matches[0] else (0, 0, 255), 2)
+        cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    cv2.imshow("Face Recognition", frame)
+    # Show the webcam feed
+    cv2.imshow("Face Unlock", frame)
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
+    # Exit on 'q' key
+    if cv2.waitKey(10) & 0xFF == ord('q'):
+        print("👋 Exiting...")
         break
 
-video_capture.release()
+video.release()
 cv2.destroyAllWindows()
 ```
 
