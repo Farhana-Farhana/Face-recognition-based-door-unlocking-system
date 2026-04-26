@@ -60,6 +60,9 @@ Face Capture → Image Processing → Face Matching → ESP32 Trigger → Relay 
 import face_recognition
 import cv2
 import pickle
+import requests
+
+ESP32_IP = "http://192.168.1.100/unlock"  # change to your ESP32 IP
 
 ENCODINGS_FILE = "encodings.pickle"
 
@@ -67,6 +70,8 @@ with open(ENCODINGS_FILE, "rb") as f:
     data = pickle.load(f)
 
 video_capture = cv2.VideoCapture(0)
+
+last_unlocked = False  # prevent multiple requests
 
 while True:
     ret, frame = video_capture.read()
@@ -84,6 +89,18 @@ while True:
             name = data["names"][matchedIdx]
 
         print("Detected:", name)
+
+        # 🔓 Unlock if recognized
+        if name != "Unknown" and not last_unlocked:
+            try:
+                requests.get(ESP32_IP)
+                print("Door Unlock Triggered!")
+                last_unlocked = True
+            except:
+                print("ESP32 not reachable")
+
+        if name == "Unknown":
+            last_unlocked = False
 
     cv2.imshow("Face Recognition", frame)
 
