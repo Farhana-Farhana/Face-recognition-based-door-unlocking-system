@@ -12,8 +12,9 @@ bool isUnlocked = false;
 
 void setup() {
   Serial.begin(115200);
+
   pinMode(relayPin, OUTPUT);
-  digitalWrite(relayPin, HIGH);  // Relay OFF (locked for active LOW relay)
+  digitalWrite(relayPin, HIGH); // Locked (active LOW relay)
 
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -21,16 +22,20 @@ void setup() {
     Serial.println("Connecting to WiFi...");
   }
 
-  Serial.println("✅ Connected to WiFi");
-  Serial.print("🌐 IP Address: ");
+  Serial.println("Connected!");
   Serial.println(WiFi.localIP());
 
-  // Define unlock route
+  // Home route
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(200, "text/plain", "ESP32 Door Lock System Running");
+  });
+
+  // Unlock route
   server.on("/unlock", HTTP_GET, [](AsyncWebServerRequest *request){
-    Serial.println("🔓 Unlock command received!");
-    digitalWrite(relayPin, LOW);  // Relay ON (active LOW) → Unlock
+    digitalWrite(relayPin, LOW); // Unlock
     unlockStartTime = millis();
     isUnlocked = true;
+
     request->send(200, "text/plain", "Door Unlocked");
   });
 
@@ -39,8 +44,8 @@ void setup() {
 
 void loop() {
   if (isUnlocked && millis() - unlockStartTime >= 3000) {
-    digitalWrite(relayPin, HIGH);  // Relay OFF → Lock again
+    digitalWrite(relayPin, HIGH); // Lock again
     isUnlocked = false;
-    Serial.println("🔒 Door re-locked.");
+    Serial.println("Door Locked");
   }
 }
